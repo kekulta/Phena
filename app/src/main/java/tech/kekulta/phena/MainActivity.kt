@@ -1,6 +1,7 @@
 package tech.kekulta.phena
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Button
@@ -22,7 +24,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -81,7 +82,7 @@ fun DrawScope.drawBlow(blow: Blow) {
 class AnimationPlayerState(
     frameState: Int = 0,
     frameTimeState: Long = 0L,
-    var frames: SnapshotStateList<Frame> = mutableStateListOf()
+    val frames: SnapshotStateList<Frame> = mutableStateListOf()
 ) {
     constructor(
         frameState: Int = 0, frameTimeState: Long = 0L, frames: List<Frame> = emptyList()
@@ -138,6 +139,7 @@ fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) 
 
 @Stable
 class AnimationCanvasState {
+    val frames = mutableStateListOf<Frame>()
     val blows = mutableStateListOf<Blow>()
     val undoneBlows = mutableStateListOf<Blow>()
     var isErase by mutableStateOf(false)
@@ -161,12 +163,13 @@ fun AnimationCanvasState.recompose() {
 }
 
 fun Modifier.transformable(state: AnimationCanvasState): Modifier {
-    return Modifier.composed {
+    return this.composed {
         if (state.isMoving) {
             Modifier.pointerInput(true) {
                 detectTransformGestures { centroid, pan, zoom, rotation ->
                     state.scale *= zoom
-                    state.scale = state.scale.coerceIn(1f, 20f)
+                    state.scale =
+                        state.scale.coerceIn(1f, 20f)
                     state.offset += (pan * state.scale)
                 }
             }
@@ -178,55 +181,54 @@ fun Modifier.transformable(state: AnimationCanvasState): Modifier {
 
 @Composable
 fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) {
-    key(state.lastUpdate) {
-        Canvas(modifier = modifier
-            .padding(16.dp)
-            .fillMaxSize()
-            .clip(shape = RoundedCornerShape(20.dp))
-            .background(state.backgroundColor)
-            .composed {
-                if (state.isMoving) {
-                    Modifier
-                } else {
-                    Modifier.pointerInput(true) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                state.undoneBlows.clear()
-                                state.blows.add(
-                                    Blow(
-                                        Path().apply {
-                                            moveTo(
-                                                offset.x, offset.y
-                                            )
-                                        }, state.strokeWidth, state.strokeColor, state.isErase
-                                    )
+    Canvas(modifier = modifier
+        .padding(16.dp)
+        .fillMaxSize()
+        .clip(shape = RoundedCornerShape(20.dp))
+        .background(state.backgroundColor)
+        .composed {
+            if (state.isMoving) {
+                Modifier
+            } else {
+                Modifier.pointerInput(true) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            state.undoneBlows.clear()
+                            state.blows.add(
+                                Blow(
+                                    Path().apply {
+                                        moveTo(
+                                            offset.x, offset.y
+                                        )
+                                    }, state.strokeWidth, state.strokeColor, state.isErase
                                 )
-                                state.skip = true
-                            },
-                        ) { change, dragAmount ->
-                            // Skip first move event because we already added this point
-                            if (state.skip) {
-                                state.skip = false
-                            } else {
-                                state.blows.last().path.quadraticTo(
-                                    change.previousPosition.x,
-                                    change.previousPosition.y,
-                                    (change.previousPosition.x + change.position.x) / 2f,
-                                    (change.previousPosition.y + change.position.y) / 2f,
-                                )
-                                state.recompose()
-                            }
+                            )
+                            state.skip = true
+                        },
+                    ) { change, dragAmount ->
+                        // Skip first move event because we already added this point
+                        if (state.skip) {
+                            state.skip = false
+                        } else {
+                            state.blows.last().path.quadraticTo(
+                                change.previousPosition.x,
+                                change.previousPosition.y,
+                                (change.previousPosition.x + change.position.x) / 2f,
+                                (change.previousPosition.y + change.position.y) / 2f,
+                            )
+                            state.recompose()
                         }
                     }
                 }
             }
-
-        ) {
-            val canvas = drawContext.canvas.nativeCanvas
-            canvas.saveLayer(null, null)
-            state.blows.forEach(this::drawBlow)
-            canvas.restore()
         }
+
+    ) {
+        Log.d("TAG", state.lastUpdate.toString())
+        val canvas = drawContext.canvas.nativeCanvas
+        canvas.saveLayer(null, null)
+        state.blows.forEach(this::drawBlow)
+        canvas.restore()
     }
 }
 
@@ -237,6 +239,11 @@ enum class ScreenState {
 
 inline fun <reified T : Enum<T>> T.next(): T {
     return enumEntries<T>()[(this.ordinal + 1) % enumEntries<T>().size]
+}
+
+fun AnimationCanvasState.nextFrame() {
+    frames.add(Frame(blows.toList(), backgroundColor))
+    blows.clear()
 }
 
 class MainActivity : ComponentActivity() {
@@ -250,7 +257,6 @@ class MainActivity : ComponentActivity() {
                     val animationPlayerState = rememberAnimationPlayerState()
                     val animationCanvasState = rememberAnimationCanvasState()
 
-                    val frames = remember { mutableStateListOf<Frame>() }
                     var screenState by remember { mutableStateOf(ScreenState.Canvas) }
 
                     Column(
@@ -258,13 +264,15 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding)
                             .fillMaxSize()
                     ) {
-                        Text("Frames: ${frames.size}, blows: ${animationCanvasState.blows.size}")
+                        Text("Frames: ${animationCanvasState.frames.size}, blows: ${animationCanvasState.blows.size}")
                         Row {
-                            Button(onClick = {
-                                screenState = screenState.next()
-                                animationPlayerState.frames.clear()
-                                animationPlayerState.frames.addAll(frames)
-                            }) { Text(screenState.name) }
+                            Button(
+                                onClick = {
+                                    animationPlayerState.frames.addAll(animationCanvasState.frames)
+                                    screenState = screenState.next()
+                                },
+                                enabled = animationCanvasState.frames.size > 0
+                            ) { Text(screenState.name) }
 
                             Button(onClick = {
                                 animationCanvasState.isMoving = !animationCanvasState.isMoving
@@ -279,22 +287,26 @@ class MainActivity : ComponentActivity() {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clipToBounds()
-                                .graphicsLayer(
-                                    scaleX = animationCanvasState.scale,
-                                    scaleY = animationCanvasState.scale,
-                                    translationX = animationCanvasState.offset.x,
-                                    translationY = animationCanvasState.offset.y
-                                )
                                 .transformable(animationCanvasState)
                         ) {
-                            when (screenState) {
-                                ScreenState.Player -> AnimationPlayer(state = animationPlayerState)
-                                ScreenState.Canvas -> AnimationCanvas(state = animationCanvasState)
+                            Box(
+                                modifier = Modifier
+                                    .clipToBounds()
+                                    .graphicsLayer(
+                                        scaleX = animationCanvasState.scale,
+                                        scaleY = animationCanvasState.scale,
+                                        translationX = animationCanvasState.offset.x,
+                                        translationY = animationCanvasState.offset.y
+                                    )
+                            ) {
+                                when (screenState) {
+                                    ScreenState.Canvas -> AnimationCanvas(state = animationCanvasState)
+                                    ScreenState.Player -> AnimationPlayer(state = animationPlayerState)
+                                }
                             }
                         }
 
-                        Row {
+                        Row(modifier = Modifier.wrapContentSize()) {
                             Button(
                                 enabled = animationCanvasState.blows.isNotEmpty(),
                                 onClick = {
@@ -318,8 +330,7 @@ class MainActivity : ComponentActivity() {
                             }) { Text(if (animationCanvasState.isErase) "D" else "E") }
                             Button(onClick = {
                                 animationCanvasState.undoneBlows.clear()
-                                frames.add(Frame(animationCanvasState.blows.toMutableList()))
-                                animationCanvasState.blows.clear()
+                                animationCanvasState.nextFrame()
                                 animationCanvasState.recompose()
                             }) { Text("Save") }
                         }
