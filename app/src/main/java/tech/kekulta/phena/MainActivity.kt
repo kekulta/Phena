@@ -47,8 +47,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.DrawTransform
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -132,10 +132,9 @@ fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) 
                 .clip(shape = RoundedCornerShape(20.dp))
                 .background(frame.background)
         ) {
-            val canvas = drawContext.canvas.nativeCanvas
-            canvas.saveLayer(null, null)
-            drawFrame(frame)
-            canvas.restore()
+            withLayerTransform({ scale(size.width, size.width, Offset.Zero) }) {
+                drawFrame(frame)
+            }
         }
     }
 }
@@ -203,8 +202,11 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
                             state.blows.add(
                                 Blow(
                                     Path().apply {
-                                        moveTo(offset.x, offset.y)
-                                    }, state.strokeWidth, state.strokeColor, state.isErase
+                                        moveTo(offset.x / size.width, offset.y / size.width)
+                                    },
+                                    state.strokeWidth / size.width,
+                                    state.strokeColor,
+                                    state.isErase
                                 )
                             )
                             state.skip = true
@@ -215,10 +217,10 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
                             state.skip = false
                         } else {
                             state.blows.last().path.quadraticTo(
-                                change.previousPosition.x,
-                                change.previousPosition.y,
-                                (change.previousPosition.x + change.position.x) / 2f,
-                                (change.previousPosition.y + change.position.y) / 2f,
+                                change.previousPosition.x / size.width,
+                                change.previousPosition.y / size.width,
+                                (change.previousPosition.x / size.width + change.position.x / size.width) / 2f,
+                                (change.previousPosition.y / size.width + change.position.y / size.width) / 2f,
                             )
                             state.recompose()
                         }
@@ -229,17 +231,32 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
 
     ) {
         state.size = size
-
+        // Trigger recomposition
         Log.d("TAG", state.lastUpdate.toString())
         val canvas = drawContext.canvas.nativeCanvas
 
-        canvas.saveLayer(null, null)
-        state.frames.lastOrNull()?.blows?.forEach { blow -> drawBlow(blow, 0.1f) }
-        canvas.restore()
+        withLayerTransform({ scale(size.width, size.width, Offset.Zero) }) {
+            state.frames.lastOrNull()?.blows?.forEach { blow -> drawBlow(blow, 0.1f) }
+        }
 
-        canvas.saveLayer(null, null)
-        state.blows.forEach(this::drawBlow)
-        canvas.restore()
+        withLayerTransform({ scale(size.width, size.width, Offset.Zero) }) {
+            state.blows.forEach(this::drawBlow)
+        }
+    }
+}
+
+inline fun DrawScope.withLayerTransform(
+    transformBlock: DrawTransform.() -> Unit,
+    drawBlock: DrawScope.() -> Unit
+) = with(drawContext) {
+    val previousSize = size
+    canvas.nativeCanvas.saveLayer(null, null)
+    try {
+        transformBlock(transform)
+        drawBlock()
+    } finally {
+        canvas.nativeCanvas.restore()
+        size = previousSize
     }
 }
 
@@ -362,12 +379,12 @@ class MainActivity : ComponentActivity() {
                                                 .padding(4.dp)
                                                 .clip(RoundedCornerShape(16.dp))
                                                 .aspectRatio(animationCanvasState.aspectRatio)
-                                                .background(animationCanvasState.backgroundColor)
+                                                .background(frame.background)
                                         ) {
-                                            withTransform({
+                                            withLayerTransform({
                                                 scale(
-                                                    size.width / animationCanvasState.size.width,
-                                                    size.width / animationCanvasState.size.width,
+                                                    size.width,
+                                                    size.width,
                                                     Offset.Zero,
                                                 )
                                             }) {
