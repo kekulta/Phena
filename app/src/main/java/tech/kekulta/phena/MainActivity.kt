@@ -12,11 +12,15 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -31,18 +35,20 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -56,12 +62,15 @@ import kotlin.enums.enumEntries
 
 data class Blow(val path: Path, val width: Dp, val color: Color, val isErase: Boolean = false)
 data class Frame(val blows: List<Blow>, val background: Color = Color.White)
+data class Anim(val frames: List<Frame>, val aspectRatio: Float = 1f, val frameRate: Float = 4f)
+
+val EmptyAnim = Anim(emptyList())
 
 fun DrawScope.drawFrame(frame: Frame) {
     frame.blows.forEach(this::drawBlow)
 }
 
-fun DrawScope.drawBlow(blow: Blow) {
+fun DrawScope.drawBlow(blow: Blow, alfa: Float = 1f) {
     if (blow.isErase) {
         drawPath(
             blow.path,
@@ -72,35 +81,30 @@ fun DrawScope.drawBlow(blow: Blow) {
     } else {
         drawPath(
             blow.path,
-            color = blow.color,
+            color = blow.color.copy(alpha = alfa),
             style = Stroke(width = blow.width.toPx(), cap = StrokeCap.Square),
         )
     }
 }
 
 @Stable
-class AnimationPlayerState(
-    frameState: Int = 0,
-    frameTimeState: Long = 0L,
-    val frames: SnapshotStateList<Frame> = mutableStateListOf()
-) {
-    constructor(
-        frameState: Int = 0, frameTimeState: Long = 0L, frames: List<Frame> = emptyList()
-    ) : this(frameState, frameTimeState, mutableStateListOf(*frames.toTypedArray()))
-
-    var frameState by mutableIntStateOf(frameState)
-    var frameTimeState by mutableLongStateOf(frameTimeState)
+class AnimationPlayerState {
+    var frameNum by mutableIntStateOf(0)
+    var isPlaying by mutableStateOf(false)
+    var animation by mutableStateOf<Anim?>(null)
 }
 
 @Composable
-fun rememberAnimationPlayerState(
-    frameState: Int = 0, frameTimeState: Long = 300L, frames: List<Frame> = emptyList()
-) = remember { AnimationPlayerState(frameState, frameTimeState, frames) }
+fun rememberAnimationPlayerState() = remember { AnimationPlayerState() }
 
 @Composable
 fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) {
-    LaunchedEffect(true) {
-        state.frameState = 0
+    LaunchedEffect(state.animation, state.isPlaying) {
+        if (!state.isPlaying) return@LaunchedEffect
+        val anim = state.animation ?: return@LaunchedEffect
+
+        val frameTime = 1000 / anim.frameRate
+        val startFrame = state.frameNum
         var start = 0L
 
         try {
@@ -110,30 +114,29 @@ fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) 
                 if (start == 0L) {
                     start = nextFrame
                 }
-                state.frameState =
-                    (((nextFrame - start) / state.frameTimeState) % state.frames.size).toInt()
+                state.frameNum =
+                    (((nextFrame - start) / frameTime + startFrame) % anim.frames.size).toInt()
             }
         } catch (e: CancellationException) {
-            state.frameState = 0
             throw e
         }
-
-        state.frameState = 0
     }
 
-    val frame = state.frames[state.frameState]
+    state.animation?.let { anim ->
+        val frame = anim.frames[state.frameNum]
 
-    Canvas(
-        modifier = modifier
-            .padding(16.dp)
-            .fillMaxSize()
-            .clip(shape = RoundedCornerShape(20.dp))
-            .background(frame.background)
-    ) {
-        val canvas = drawContext.canvas.nativeCanvas
-        canvas.saveLayer(null, null)
-        drawFrame(frame)
-        canvas.restore()
+        Canvas(
+            modifier = modifier
+                .padding(16.dp)
+                .aspectRatio(anim.aspectRatio)
+                .clip(shape = RoundedCornerShape(20.dp))
+                .background(frame.background)
+        ) {
+            val canvas = drawContext.canvas.nativeCanvas
+            canvas.saveLayer(null, null)
+            drawFrame(frame)
+            canvas.restore()
+        }
     }
 }
 
@@ -145,11 +148,14 @@ class AnimationCanvasState {
     var isErase by mutableStateOf(false)
     var isMoving by mutableStateOf(false)
 
+    var size by mutableStateOf(Size(1f, 1f))
     var scale by mutableFloatStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
-    var strokeColor by mutableStateOf(Color.Black)
+    var strokeColor by mutableStateOf(Color.Cyan)
     var strokeWidth by mutableStateOf(10.dp)
     var backgroundColor by mutableStateOf(Color.White)
+    var aspectRatio by mutableFloatStateOf(1f)
+    var frameRate by mutableFloatStateOf(4f)
 
     var skip by mutableStateOf(false)
     var lastUpdate by mutableLongStateOf(0L)
@@ -183,7 +189,7 @@ fun Modifier.transformable(state: AnimationCanvasState): Modifier {
 fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) {
     Canvas(modifier = modifier
         .padding(16.dp)
-        .fillMaxSize()
+        .aspectRatio(state.aspectRatio)
         .clip(shape = RoundedCornerShape(20.dp))
         .background(state.backgroundColor)
         .composed {
@@ -197,9 +203,7 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
                             state.blows.add(
                                 Blow(
                                     Path().apply {
-                                        moveTo(
-                                            offset.x, offset.y
-                                        )
+                                        moveTo(offset.x, offset.y)
                                     }, state.strokeWidth, state.strokeColor, state.isErase
                                 )
                             )
@@ -224,8 +228,15 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
         }
 
     ) {
+        state.size = size
+
         Log.d("TAG", state.lastUpdate.toString())
         val canvas = drawContext.canvas.nativeCanvas
+
+        canvas.saveLayer(null, null)
+        state.frames.lastOrNull()?.blows?.forEach { blow -> drawBlow(blow, 0.1f) }
+        canvas.restore()
+
         canvas.saveLayer(null, null)
         state.blows.forEach(this::drawBlow)
         canvas.restore()
@@ -241,9 +252,22 @@ inline fun <reified T : Enum<T>> T.next(): T {
     return enumEntries<T>()[(this.ordinal + 1) % enumEntries<T>().size]
 }
 
-fun AnimationCanvasState.nextFrame() {
+fun AnimationCanvasState.undoFrame() {
+    undoneBlows.clear()
+    blows.clear()
+    blows.addAll(frames.last().blows)
+    backgroundColor =
+        frames.last().background
+    frames.removeAt(frames.lastIndex)
+}
+
+fun AnimationCanvasState.saveFrame() {
     frames.add(Frame(blows.toList(), backgroundColor))
     blows.clear()
+}
+
+fun AnimationCanvasState.getAnim(): Anim {
+    return Anim(frames.toList(), aspectRatio, frameRate)
 }
 
 class MainActivity : ComponentActivity() {
@@ -251,7 +275,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            rememberTextFieldState()
             PhenaTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     val animationPlayerState = rememberAnimationPlayerState()
@@ -268,11 +291,14 @@ class MainActivity : ComponentActivity() {
                         Row {
                             Button(
                                 onClick = {
-                                    animationPlayerState.frames.addAll(animationCanvasState.frames)
+                                    animationPlayerState.animation = animationCanvasState.getAnim()
+                                    animationPlayerState.frameNum = 0
+                                    animationPlayerState.isPlaying = false
                                     screenState = screenState.next()
                                 },
                                 enabled = animationCanvasState.frames.size > 0
                             ) { Text(screenState.name) }
+
 
                             Button(onClick = {
                                 animationCanvasState.isMoving = !animationCanvasState.isMoving
@@ -282,6 +308,21 @@ class MainActivity : ComponentActivity() {
                                 animationCanvasState.scale = 1f
                                 animationCanvasState.offset = Offset.Zero
                             }) { Text("Default") }
+
+                            Button(
+                                onClick = {
+
+                                    animationCanvasState.undoFrame()
+                                },
+                                enabled = animationCanvasState.frames.isNotEmpty()
+                            ) { Text("Last Frame") }
+                        }
+                        Row {
+                            Button(
+                                onClick = {
+                                    animationPlayerState.isPlaying = !animationPlayerState.isPlaying
+                                },
+                            ) { Text("Play/Pause") }
                         }
 
                         Box(
@@ -291,6 +332,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Box(
                                 modifier = Modifier
+                                    .fillMaxSize()
                                     .clipToBounds()
                                     .graphicsLayer(
                                         scaleX = animationCanvasState.scale,
@@ -302,6 +344,116 @@ class MainActivity : ComponentActivity() {
                                 when (screenState) {
                                     ScreenState.Canvas -> AnimationCanvas(state = animationCanvasState)
                                     ScreenState.Player -> AnimationPlayer(state = animationPlayerState)
+                                }
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                            ) {
+                                LazyRow(
+                                    modifier = Modifier
+                                        .height(100.dp)
+                                        .fillMaxWidth()
+                                ) {
+                                    items(animationCanvasState.frames) { frame ->
+                                        Canvas(
+                                            modifier = Modifier
+                                                .padding(4.dp)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .aspectRatio(animationCanvasState.aspectRatio)
+                                                .background(animationCanvasState.backgroundColor)
+                                        ) {
+                                            withTransform({
+                                                scale(
+                                                    size.width / animationCanvasState.size.width,
+                                                    size.width / animationCanvasState.size.width,
+                                                    Offset.Zero,
+                                                )
+                                            }) {
+                                                frame.blows.forEach(this::drawBlow)
+                                            }
+                                        }
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(80.dp))
+                                        .background(Color.DarkGray)
+                                        .padding(8.dp)
+                                ) {
+                                    Button(onClick = {
+                                        animationCanvasState.backgroundColor = Color.Black
+                                    }) { Text("Black") }
+                                    Button(onClick = {
+                                        animationCanvasState.backgroundColor = Color.Blue
+                                    }) { Text("Blue") }
+                                    Button(onClick = {
+                                        animationCanvasState.backgroundColor = Color.Red
+                                    }) { Text("Red") }
+                                    Button(onClick = {
+                                        animationCanvasState.backgroundColor = Color.Cyan
+                                    }) { Text("Cyan") }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(80.dp))
+                                        .background(Color.DarkGray)
+                                        .padding(8.dp)
+                                ) {
+                                    Button(onClick = {
+                                        animationCanvasState.strokeColor = Color.Black
+                                    }) { Text("Black") }
+                                    Button(onClick = {
+                                        animationCanvasState.strokeColor = Color.Blue
+                                    }) { Text("Blue") }
+                                    Button(onClick = {
+                                        animationCanvasState.strokeColor = Color.Red
+                                    }) { Text("Red") }
+                                    Button(onClick = {
+                                        animationCanvasState.strokeColor = Color.Cyan
+                                    }) { Text("Cyan") }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(80.dp))
+                                        .background(Color.DarkGray)
+                                        .padding(8.dp)
+                                ) {
+                                    Button(onClick = {
+                                        animationCanvasState.aspectRatio = 1f
+                                    }) { Text("1/1") }
+                                    Button(onClick = {
+                                        animationCanvasState.aspectRatio = 4 / 3f
+                                    }) { Text("4/3") }
+                                    Button(onClick = {
+                                        animationCanvasState.aspectRatio = 16 / 9f
+                                    }) { Text("16/9") }
+                                    Button(onClick = {
+                                        animationCanvasState.aspectRatio = 9 / 16f
+                                    }) { Text("9/16") }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(80.dp))
+                                        .background(Color.DarkGray)
+                                        .padding(8.dp)
+                                ) {
+                                    Button(onClick = {
+                                        animationCanvasState.frameRate = 4f
+                                    }) { Text("4f") }
+                                    Button(onClick = {
+                                        animationCanvasState.frameRate = 24f
+                                    }) { Text("24f") }
+                                    Button(onClick = {
+                                        animationCanvasState.frameRate = 30f
+                                    }) { Text("30f") }
+                                    Button(onClick = {
+                                        animationCanvasState.frameRate = 60f
+                                    }) { Text("60f") }
                                 }
                             }
                         }
@@ -330,7 +482,7 @@ class MainActivity : ComponentActivity() {
                             }) { Text(if (animationCanvasState.isErase) "D" else "E") }
                             Button(onClick = {
                                 animationCanvasState.undoneBlows.clear()
-                                animationCanvasState.nextFrame()
+                                animationCanvasState.saveFrame()
                                 animationCanvasState.recompose()
                             }) { Text("Save") }
                         }
