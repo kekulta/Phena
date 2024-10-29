@@ -1,14 +1,17 @@
 package tech.kekulta.phena
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
@@ -41,7 +45,6 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -57,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.isActive
+import tech.kekulta.phena.ScreenState.Canvas
+import tech.kekulta.phena.ScreenState.Player
 import tech.kekulta.phena.ui.theme.PhenaTheme
 import kotlin.enums.enumEntries
 
@@ -136,7 +141,299 @@ fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) 
                 drawFrame(frame)
             }
         }
+    } ?: run {
+        Text("No Animation Selected")
     }
+}
+
+enum class Menu {
+    NO_MENU, COLOR, BACKGROUND, FRAMERATE, RATIO, FRAMES
+}
+
+@Composable
+fun AnimationCanvasScreen(
+    state: AnimationCanvasState,
+    onSaveAnimation: (Anim) -> Unit,
+    onPlayAnimation: (Anim) -> Unit,
+) {
+    var currentMenu by remember { mutableStateOf(Menu.NO_MENU) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .wrapContentSize()
+                .horizontalScroll(rememberScrollState())
+        ) {
+            Button(enabled = state.blows.isNotEmpty(), onClick = {
+                state.undoneBlows.add(
+                    state.blows.removeAt(
+                        state.blows.lastIndex
+                    )
+                )
+            }) { Text("Undo") }
+            Button(enabled = state.undoneBlows.isNotEmpty(),
+                onClick = {
+                    state.blows.add(
+                        state.undoneBlows.removeAt(
+                            state.undoneBlows.lastIndex
+                        )
+                    )
+                }) { Text("Redo") }
+            Button(onClick = {
+                state.saveFrame()
+            }) { Text("Save") }
+
+            Button(onClick = {
+                state.undoFrame()
+            }, enabled = state.frames.isNotEmpty()) { Text("Last Frame") }
+
+            Button(onClick = {
+                state.scale = 1f
+                state.offset = Offset.Zero
+            }, enabled = state.scale != 1f || state.offset != Offset.Zero) { Text("Default") }
+
+            Button(onClick = {
+                onPlayAnimation(state.getAnim())
+            }, enabled = state.frames.isNotEmpty()) { Text("Play") }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .transformable(state)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clipToBounds()
+                    .graphicsLayer(
+                        scaleX = state.scale,
+                        scaleY = state.scale,
+                        translationX = state.offset.x,
+                        translationY = state.offset.y
+                    )
+            ) {
+                AnimationCanvas(state = state)
+            }
+
+            when (currentMenu) {
+                Menu.NO_MENU -> Unit
+
+                Menu.COLOR -> {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(80.dp))
+                            .background(Color.DarkGray)
+                            .padding(8.dp)
+                    ) {
+                        Button(onClick = {
+                            state.strokeColor = Color.Black
+                        }) { Text("Black") }
+                        Button(onClick = {
+                            state.strokeColor = Color.Blue
+                        }) { Text("Blue") }
+                        Button(onClick = {
+                            state.strokeColor = Color.Red
+                        }) { Text("Red") }
+                        Button(onClick = {
+                            state.strokeColor = Color.Cyan
+                        }) { Text("Cyan") }
+                    }
+                }
+
+                Menu.BACKGROUND -> {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(80.dp))
+                            .background(Color.DarkGray)
+                            .padding(8.dp)
+                    ) {
+                        Button(onClick = {
+                            state.backgroundColor = Color.Black
+                        }) { Text("Black") }
+                        Button(onClick = {
+                            state.backgroundColor = Color.Blue
+                        }) { Text("Blue") }
+                        Button(onClick = {
+                            state.backgroundColor = Color.Red
+                        }) { Text("Red") }
+                        Button(onClick = {
+                            state.backgroundColor = Color.Cyan
+                        }) { Text("Cyan") }
+                    }
+                }
+
+                Menu.FRAMERATE -> {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(80.dp))
+                            .background(Color.DarkGray)
+                            .padding(8.dp)
+                    ) {
+                        Button(onClick = {
+                            state.frameRate = 4f
+                        }) { Text("4f") }
+                        Button(onClick = {
+                            state.frameRate = 24f
+                        }) { Text("24f") }
+                        Button(onClick = {
+                            state.frameRate = 30f
+                        }) { Text("30f") }
+                        Button(onClick = {
+                            state.frameRate = 60f
+                        }) { Text("60f") }
+                    }
+                }
+
+                Menu.RATIO -> {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(80.dp))
+                            .background(Color.DarkGray)
+                            .padding(8.dp)
+                    ) {
+                        Button(onClick = {
+                            state.aspectRatio = 1f
+                        }) { Text("1/1") }
+                        Button(onClick = {
+                            state.aspectRatio = 4 / 3f
+                        }) { Text("4/3") }
+                        Button(onClick = {
+                            state.aspectRatio = 16 / 9f
+                        }) { Text("16/9") }
+                        Button(onClick = {
+                            state.aspectRatio = 9 / 16f
+                        }) { Text("9/16") }
+                    }
+                }
+
+                Menu.FRAMES -> {
+                    LazyRow(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .height(100.dp)
+                            .fillMaxWidth()
+                    ) {
+                        items(state.frames) { frame ->
+                            Canvas(
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .aspectRatio(state.aspectRatio)
+                                    .background(frame.background)
+                            ) {
+                                withLayerTransform({
+                                    scale(
+                                        size.width,
+                                        size.width,
+                                        Offset.Zero,
+                                    )
+                                }) {
+                                    frame.blows.forEach(this::drawBlow)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            Button(
+                onClick = {
+                    state.drawingTool = DrawingTool.POINTER
+                },
+                border = selectedBorder(state.drawingTool == DrawingTool.POINTER)
+            ) { Text("M") }
+
+            Button(
+                onClick = {
+                    state.drawingTool = DrawingTool.ERASER
+                },
+                border = selectedBorder(state.drawingTool == DrawingTool.ERASER)
+            ) { Text("E") }
+
+            Button(
+                onClick = {
+                    state.drawingTool = DrawingTool.PENCIL
+                },
+                border = selectedBorder(state.drawingTool == DrawingTool.PENCIL)
+            ) { Text("P") }
+
+            Button(
+                onClick = {
+                    currentMenu = if (currentMenu == Menu.COLOR) {
+                        Menu.NO_MENU
+                    } else {
+                        Menu.COLOR
+                    }
+                },
+                border = selectedBorder(currentMenu == Menu.COLOR)
+            ) { Text("Color") }
+
+            Button(
+                onClick = {
+                    currentMenu = if (currentMenu == Menu.BACKGROUND) {
+                        Menu.NO_MENU
+                    } else {
+                        Menu.BACKGROUND
+                    }
+                },
+                border = selectedBorder(currentMenu == Menu.BACKGROUND)
+            ) { Text("Back") }
+
+            Button(
+                onClick = {
+                    currentMenu = if (currentMenu == Menu.RATIO) {
+                        Menu.NO_MENU
+                    } else {
+                        Menu.RATIO
+                    }
+                },
+                border = selectedBorder(currentMenu == Menu.RATIO)
+            ) { Text("Ratio") }
+
+            Button(
+                onClick = {
+                    currentMenu = if (currentMenu == Menu.FRAMERATE) {
+                        Menu.NO_MENU
+                    } else {
+                        Menu.FRAMERATE
+                    }
+                },
+                border = selectedBorder(currentMenu == Menu.FRAMERATE)
+            ) { Text("Framerate") }
+
+            Button(
+                onClick = {
+                    currentMenu = if (currentMenu == Menu.FRAMES) {
+                        Menu.NO_MENU
+                    } else {
+                        Menu.FRAMES
+                    }
+                },
+                border = selectedBorder(currentMenu == Menu.FRAMES)
+            ) { Text("Frames") }
+        }
+    }
+}
+
+
+fun selectedBorder(isSelected: Boolean): BorderStroke {
+    return if (isSelected) {
+        BorderStroke(4.dp, Color.Green)
+    } else {
+        BorderStroke(0.dp, Color.Transparent)
+    }
+}
+
+enum class DrawingTool {
+    PENCIL,
+    ERASER,
+    POINTER
 }
 
 @Stable
@@ -144,10 +441,8 @@ class AnimationCanvasState {
     val frames = mutableStateListOf<Frame>()
     val blows = mutableStateListOf<Blow>()
     val undoneBlows = mutableStateListOf<Blow>()
-    var isErase by mutableStateOf(false)
-    var isMoving by mutableStateOf(false)
+    var drawingTool by mutableStateOf<DrawingTool>(DrawingTool.PENCIL)
 
-    var size by mutableStateOf(Size(1f, 1f))
     var scale by mutableFloatStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
     var strokeColor by mutableStateOf(Color.Cyan)
@@ -169,13 +464,12 @@ fun AnimationCanvasState.recompose() {
 
 fun Modifier.transformable(state: AnimationCanvasState): Modifier {
     return this.composed {
-        if (state.isMoving) {
+        if (state.drawingTool == DrawingTool.POINTER) {
             Modifier.pointerInput(true) {
                 detectTransformGestures { centroid, pan, zoom, rotation ->
                     state.scale *= zoom
-                    state.scale =
-                        state.scale.coerceIn(1f, 20f)
-                    state.offset += (pan * state.scale)
+                    state.scale = state.scale.coerceIn(1f, 20f)
+                    state.offset += pan
                 }
             }
         } else {
@@ -192,7 +486,7 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
         .clip(shape = RoundedCornerShape(20.dp))
         .background(state.backgroundColor)
         .composed {
-            if (state.isMoving) {
+            if (state.drawingTool == DrawingTool.POINTER) {
                 Modifier
             } else {
                 Modifier.pointerInput(true) {
@@ -206,7 +500,7 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
                                     },
                                     state.strokeWidth / size.width,
                                     state.strokeColor,
-                                    state.isErase
+                                    state.drawingTool == DrawingTool.ERASER
                                 )
                             )
                             state.skip = true
@@ -230,10 +524,8 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
         }
 
     ) {
-        state.size = size
         // Trigger recomposition
-        Log.d("TAG", state.lastUpdate.toString())
-        val canvas = drawContext.canvas.nativeCanvas
+        state.lastUpdate
 
         withLayerTransform({ scale(size.width, size.width, Offset.Zero) }) {
             state.frames.lastOrNull()?.blows?.forEach { blow -> drawBlow(blow, 0.1f) }
@@ -245,9 +537,39 @@ fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) 
     }
 }
 
+@Composable
+fun AnimationPlayerScreen(
+    state: AnimationPlayerState = rememberAnimationPlayerState(),
+    onBack: () -> Unit,
+) {
+    BackHandler { onBack() }
+
+    Column {
+        Box(
+            modifier = Modifier.weight(1f)
+        ) {
+            AnimationPlayer(modifier = Modifier.align(Alignment.Center), state = state)
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Button(onClick = { state.isPlaying = !state.isPlaying }) {
+                if (state.isPlaying) {
+                    Text("Pause")
+                } else {
+                    Text("Play")
+                }
+            }
+
+            Button(onClick = {
+                state.isPlaying = false
+                state.frameNum = 0
+            }, enabled = state.frameNum != 0 || state.isPlaying) { Text("Stop") }
+        }
+    }
+}
+
 inline fun DrawScope.withLayerTransform(
-    transformBlock: DrawTransform.() -> Unit,
-    drawBlock: DrawScope.() -> Unit
+    transformBlock: DrawTransform.() -> Unit, drawBlock: DrawScope.() -> Unit
 ) = with(drawContext) {
     val previousSize = size
     canvas.nativeCanvas.saveLayer(null, null)
@@ -261,8 +583,7 @@ inline fun DrawScope.withLayerTransform(
 }
 
 enum class ScreenState {
-    Player,
-    Canvas
+    Player, Canvas
 }
 
 inline fun <reified T : Enum<T>> T.next(): T {
@@ -273,18 +594,24 @@ fun AnimationCanvasState.undoFrame() {
     undoneBlows.clear()
     blows.clear()
     blows.addAll(frames.last().blows)
-    backgroundColor =
-        frames.last().background
+    backgroundColor = frames.last().background
     frames.removeAt(frames.lastIndex)
 }
 
 fun AnimationCanvasState.saveFrame() {
+    undoneBlows.clear()
     frames.add(Frame(blows.toList(), backgroundColor))
     blows.clear()
 }
 
 fun AnimationCanvasState.getAnim(): Anim {
     return Anim(frames.toList(), aspectRatio, frameRate)
+}
+
+fun AnimationPlayerState.set(anim: Anim) {
+    animation = anim
+    frameNum = 0
+    isPlaying = false
 }
 
 class MainActivity : ComponentActivity() {
@@ -296,212 +623,18 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     val animationPlayerState = rememberAnimationPlayerState()
                     val animationCanvasState = rememberAnimationCanvasState()
+                    var screenState by remember { mutableStateOf(Canvas) }
 
-                    var screenState by remember { mutableStateOf(ScreenState.Canvas) }
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        when (screenState) {
+                            Player -> AnimationPlayerScreen(animationPlayerState, {
+                                screenState = Canvas
+                            })
 
-                    Column(
-                        modifier = Modifier
-                            .padding(innerPadding)
-                            .fillMaxSize()
-                    ) {
-                        Text("Frames: ${animationCanvasState.frames.size}, blows: ${animationCanvasState.blows.size}")
-                        Row {
-                            Button(
-                                onClick = {
-                                    animationPlayerState.animation = animationCanvasState.getAnim()
-                                    animationPlayerState.frameNum = 0
-                                    animationPlayerState.isPlaying = false
-                                    screenState = screenState.next()
-                                },
-                                enabled = animationCanvasState.frames.size > 0
-                            ) { Text(screenState.name) }
-
-
-                            Button(onClick = {
-                                animationCanvasState.isMoving = !animationCanvasState.isMoving
-                            }) { Text(if (animationCanvasState.isMoving) "Move" else "Draw") }
-
-                            Button(onClick = {
-                                animationCanvasState.scale = 1f
-                                animationCanvasState.offset = Offset.Zero
-                            }) { Text("Default") }
-
-                            Button(
-                                onClick = {
-
-                                    animationCanvasState.undoFrame()
-                                },
-                                enabled = animationCanvasState.frames.isNotEmpty()
-                            ) { Text("Last Frame") }
-                        }
-                        Row {
-                            Button(
-                                onClick = {
-                                    animationPlayerState.isPlaying = !animationPlayerState.isPlaying
-                                },
-                            ) { Text("Play/Pause") }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .transformable(animationCanvasState)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clipToBounds()
-                                    .graphicsLayer(
-                                        scaleX = animationCanvasState.scale,
-                                        scaleY = animationCanvasState.scale,
-                                        translationX = animationCanvasState.offset.x,
-                                        translationY = animationCanvasState.offset.y
-                                    )
-                            ) {
-                                when (screenState) {
-                                    ScreenState.Canvas -> AnimationCanvas(state = animationCanvasState)
-                                    ScreenState.Player -> AnimationPlayer(state = animationPlayerState)
-                                }
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                            ) {
-                                LazyRow(
-                                    modifier = Modifier
-                                        .height(100.dp)
-                                        .fillMaxWidth()
-                                ) {
-                                    items(animationCanvasState.frames) { frame ->
-                                        Canvas(
-                                            modifier = Modifier
-                                                .padding(4.dp)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .aspectRatio(animationCanvasState.aspectRatio)
-                                                .background(frame.background)
-                                        ) {
-                                            withLayerTransform({
-                                                scale(
-                                                    size.width,
-                                                    size.width,
-                                                    Offset.Zero,
-                                                )
-                                            }) {
-                                                frame.blows.forEach(this::drawBlow)
-                                            }
-                                        }
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(80.dp))
-                                        .background(Color.DarkGray)
-                                        .padding(8.dp)
-                                ) {
-                                    Button(onClick = {
-                                        animationCanvasState.backgroundColor = Color.Black
-                                    }) { Text("Black") }
-                                    Button(onClick = {
-                                        animationCanvasState.backgroundColor = Color.Blue
-                                    }) { Text("Blue") }
-                                    Button(onClick = {
-                                        animationCanvasState.backgroundColor = Color.Red
-                                    }) { Text("Red") }
-                                    Button(onClick = {
-                                        animationCanvasState.backgroundColor = Color.Cyan
-                                    }) { Text("Cyan") }
-                                }
-
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(80.dp))
-                                        .background(Color.DarkGray)
-                                        .padding(8.dp)
-                                ) {
-                                    Button(onClick = {
-                                        animationCanvasState.strokeColor = Color.Black
-                                    }) { Text("Black") }
-                                    Button(onClick = {
-                                        animationCanvasState.strokeColor = Color.Blue
-                                    }) { Text("Blue") }
-                                    Button(onClick = {
-                                        animationCanvasState.strokeColor = Color.Red
-                                    }) { Text("Red") }
-                                    Button(onClick = {
-                                        animationCanvasState.strokeColor = Color.Cyan
-                                    }) { Text("Cyan") }
-                                }
-
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(80.dp))
-                                        .background(Color.DarkGray)
-                                        .padding(8.dp)
-                                ) {
-                                    Button(onClick = {
-                                        animationCanvasState.aspectRatio = 1f
-                                    }) { Text("1/1") }
-                                    Button(onClick = {
-                                        animationCanvasState.aspectRatio = 4 / 3f
-                                    }) { Text("4/3") }
-                                    Button(onClick = {
-                                        animationCanvasState.aspectRatio = 16 / 9f
-                                    }) { Text("16/9") }
-                                    Button(onClick = {
-                                        animationCanvasState.aspectRatio = 9 / 16f
-                                    }) { Text("9/16") }
-                                }
-
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(80.dp))
-                                        .background(Color.DarkGray)
-                                        .padding(8.dp)
-                                ) {
-                                    Button(onClick = {
-                                        animationCanvasState.frameRate = 4f
-                                    }) { Text("4f") }
-                                    Button(onClick = {
-                                        animationCanvasState.frameRate = 24f
-                                    }) { Text("24f") }
-                                    Button(onClick = {
-                                        animationCanvasState.frameRate = 30f
-                                    }) { Text("30f") }
-                                    Button(onClick = {
-                                        animationCanvasState.frameRate = 60f
-                                    }) { Text("60f") }
-                                }
-                            }
-                        }
-
-                        Row(modifier = Modifier.wrapContentSize()) {
-                            Button(
-                                enabled = animationCanvasState.blows.isNotEmpty(),
-                                onClick = {
-                                    animationCanvasState.undoneBlows.add(
-                                        animationCanvasState.blows.removeAt(
-                                            animationCanvasState.blows.lastIndex
-                                        )
-                                    )
-                                }) { Text("Undo") }
-                            Button(
-                                enabled = animationCanvasState.undoneBlows.isNotEmpty(),
-                                onClick = {
-                                    animationCanvasState.blows.add(
-                                        animationCanvasState.undoneBlows.removeAt(
-                                            animationCanvasState.undoneBlows.lastIndex
-                                        )
-                                    )
-                                }) { Text("Redo") }
-                            Button(onClick = {
-                                animationCanvasState.isErase = !animationCanvasState.isErase
-                            }) { Text(if (animationCanvasState.isErase) "D" else "E") }
-                            Button(onClick = {
-                                animationCanvasState.undoneBlows.clear()
-                                animationCanvasState.saveFrame()
-                                animationCanvasState.recompose()
-                            }) { Text("Save") }
+                            Canvas -> AnimationCanvasScreen(animationCanvasState, {}, { anim ->
+                                animationPlayerState.set(anim)
+                                screenState = Player
+                            })
                         }
                     }
                 }
