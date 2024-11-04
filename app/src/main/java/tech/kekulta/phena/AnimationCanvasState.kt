@@ -31,10 +31,10 @@ class AnimationCanvasState {
 
     var scale by mutableFloatStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
-    var strokeColor by mutableStateOf(Color.Cyan)
+    var strokeColor by mutableStateOf(Color.Black)
     var strokeWidth by mutableStateOf(10.dp)
     var backgroundColor by mutableStateOf(Color.White)
-    var aspectRatio by mutableFloatStateOf(1f)
+    var aspectRatio by mutableStateOf(Ratio(1f, 1f))
     var frameRate by mutableFloatStateOf(4f)
 
     // Ugly workaround
@@ -93,6 +93,7 @@ fun AnimationCanvasState.abortEditing() {
 fun AnimationCanvasState.undoFrame() {
     undoneBlows.clear()
     blows.clear()
+    if (frames.isEmpty()) return
     if (currentFrame == -1) {
         blows.addAll(frames.last().blows)
         frames.removeAt(frames.lastIndex)
@@ -100,7 +101,7 @@ fun AnimationCanvasState.undoFrame() {
         frames.removeAt(currentFrame)
         currentFrame = -1
     }
-    backgroundColor = frames.last().background
+    frames.lastOrNull()?.background?.let { b -> backgroundColor = b }
 }
 
 fun AnimationCanvasState.editFrame(num: Int) {

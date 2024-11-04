@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 fun AnimationCanvas(modifier: Modifier = Modifier, state: AnimationCanvasState) {
     Canvas(modifier = modifier
         .padding(16.dp)
-        .aspectRatio(state.aspectRatio)
+        .aspectRatio(state.aspectRatio.calculate())
         .clip(shape = RoundedCornerShape(20.dp))
         .background(state.backgroundColor)
         .composed {

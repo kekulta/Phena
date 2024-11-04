@@ -47,7 +47,7 @@ fun AnimationPlayer(modifier: Modifier = Modifier, state: AnimationPlayerState) 
         Canvas(
             modifier = modifier
                 .padding(16.dp)
-                .aspectRatio(anim.aspectRatio)
+                .aspectRatio(anim.aspectRatio.calculate())
                 .clip(shape = RoundedCornerShape(20.dp))
                 .background(frame.background)
         ) {
